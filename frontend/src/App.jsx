@@ -21,6 +21,7 @@ import {
   playSong,
   performSearch,
   registerAccount,
+  removeSongFromPlaylist,
   subscribeToPlan,
   updateProfile,
 } from "./api";
@@ -38,8 +39,16 @@ const initialAuthForm = {
   name: "",
   email: "",
   password: "",
-  device_identifier: "web-player",
+  device_identifier: "web-browser",
 };
+
+const signInDeviceOptions = [
+  { value: "web-browser", label: "Web Browser", type: "Browser" },
+  { value: "android-phone", label: "Android Phone", type: "Mobile" },
+  { value: "iphone", label: "iPhone", type: "Mobile" },
+  { value: "windows-laptop", label: "Windows Laptop", type: "Desktop" },
+  { value: "smart-tv", label: "Smart TV", type: "TV" },
+];
 
 function getSongId(song) {
   return Number(song?.song_id || song?.id);
@@ -208,6 +217,7 @@ function App() {
   const [activeSection, setActiveSection] = useState("dashboard");
   const [authMode, setAuthMode] = useState("login");
   const [authForm, setAuthForm] = useState(initialAuthForm);
+  const [showDevicePolicyModal, setShowDevicePolicyModal] = useState(false);
   const [profileForm, setProfileForm] = useState({ name: "", email: "", password: "" });
   const [user, setUser] = useState(() => getStoredUser());
   const [songs, setSongs] = useState([]);
@@ -280,6 +290,12 @@ function App() {
   const currentPlanStatus = subscription?.status || subscription?.subscription?.status || "free";
   const currentPlanId = Number(subscription?.subscription?.plan_id || subscription?.subscription?.id || 0);
   const hasPaidPlan = currentPlanName && currentPlanName !== "Free" && currentPlanStatus !== "free";
+  const selectedSignInDevice = useMemo(
+    () =>
+      signInDeviceOptions.find((device) => device.value === authForm.device_identifier) ||
+      signInDeviceOptions[0],
+    [authForm.device_identifier],
+  );
 
   useEffect(() => {
     const audio = audioRef.current;
@@ -465,6 +481,29 @@ function App() {
     );
   }
 
+  function removeSongFromPlaylistState(playlistId, songId) {
+    const normalizedPlaylistId = Number(playlistId);
+    const normalizedSongId = Number(songId);
+
+    setPlaylists((current) =>
+      current.map((playlist) => {
+        if (Number(playlist.playlist_id || playlist.id) !== normalizedPlaylistId) {
+          return playlist;
+        }
+
+        const remainingSongs = Array.isArray(playlist.songs)
+          ? playlist.songs.filter((song) => getSongId(song) !== normalizedSongId)
+          : [];
+
+        return {
+          ...playlist,
+          song_count: remainingSongs.length,
+          songs: remainingSongs,
+        };
+      }),
+    );
+  }
+
   async function refreshPlaylists() {
     try {
       const playlistsResponse = await fetchPlaylists();
@@ -599,8 +638,7 @@ function App() {
     }
   }
 
-  async function handleAuthSubmit(event) {
-    event.preventDefault();
+  async function submitAuthRequest() {
     setLoading(true);
     setStatus(authMode === "login" ? "Signing you in..." : "Creating your account...");
 
@@ -611,6 +649,8 @@ function App() {
               email: authForm.email,
               password: authForm.password,
               device_identifier: authForm.device_identifier,
+              device_name: selectedSignInDevice.label,
+              platform: selectedSignInDevice.type,
             })
           : await registerAccount({
               name: authForm.name,
@@ -628,12 +668,33 @@ function App() {
       setToken(response.data?.access_token);
       setUser(responseUser);
       setAuthForm(initialAuthForm);
+      setShowDevicePolicyModal(false);
       setStatus(authMode === "login" ? "Welcome back." : "Account created.");
     } catch (error) {
       setStatus(error.message);
     } finally {
       setLoading(false);
     }
+  }
+
+  async function handleAuthSubmit(event) {
+    event.preventDefault();
+
+    if (authMode === "login") {
+      setShowDevicePolicyModal(true);
+      return;
+    }
+
+    await submitAuthRequest();
+  }
+
+  function closeDevicePolicyModal() {
+    if (loading) {
+      return;
+    }
+
+    setShowDevicePolicyModal(false);
+    setStatus("Choose a device and continue when you're ready.");
   }
 
   async function handleSearch(event) {
@@ -922,6 +983,30 @@ function App() {
     }
   }
 
+  async function handleRemoveSongFromPlaylist(playlistId, song) {
+    const normalizedSongId = getSongId(song);
+    setLoading(true);
+    setStatus("Removing song from playlist...");
+
+    try {
+      const response = await removeSongFromPlaylist(playlistId, normalizedSongId);
+      removeSongFromPlaylistState(playlistId, normalizedSongId);
+      await refreshPlaylists();
+      pushNotification(
+        "Removed from playlist",
+        `${getSongTitle(song)} was removed from ${playlistLabel(
+          playlists.find((item) => Number(item.playlist_id || item.id) === Number(playlistId)),
+        )}.`,
+        "playlist",
+      );
+      setStatus(response.message ?? "Song removed from playlist.");
+    } catch (error) {
+      setStatus(error.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
   function openCheckout(plan) {
     setCheckoutPlan(plan);
     setPaymentForm({
@@ -1043,6 +1128,7 @@ function App() {
     setSearchResults([]);
     setSearchHistory([]);
     setSelectedPlaylistBySong({});
+    setShowDevicePolicyModal(false);
     setNowPlaying(null);
     setIsPlaying(false);
     setPlaybackPosition(0);
@@ -1129,14 +1215,20 @@ function App() {
           <div className="tab-row">
             <button
               className={authMode === "login" ? "active" : ""}
-              onClick={() => setAuthMode("login")}
+              onClick={() => {
+                setAuthMode("login");
+                setShowDevicePolicyModal(false);
+              }}
               type="button"
             >
               Login
             </button>
             <button
               className={authMode === "register" ? "active" : ""}
-              onClick={() => setAuthMode("register")}
+              onClick={() => {
+                setAuthMode("register");
+                setShowDevicePolicyModal(false);
+              }}
               type="button"
             >
               Register
@@ -1177,15 +1269,27 @@ function App() {
 
             {authMode === "login" && (
               <label>
-                Device identifier
-                <input
+                Sign in on device
+                <select
                   value={authForm.device_identifier}
                   onChange={(event) =>
                     setAuthForm({ ...authForm, device_identifier: event.target.value })
                   }
-                  placeholder="web-player"
-                />
+                >
+                  {signInDeviceOptions.map((device) => (
+                    <option key={device.value} value={device.value}>
+                      {device.label} - {device.type}
+                    </option>
+                  ))}
+                </select>
               </label>
+            )}
+
+            {authMode === "login" && (
+              <p className="device-policy-inline">
+                You can pick one device for this session. Older sessions on other devices are signed out
+                automatically.
+              </p>
             )}
 
             <button className="primary" disabled={loading} type="submit">
@@ -1195,6 +1299,36 @@ function App() {
 
           <p className="status-text">{status}</p>
         </section>
+        {showDevicePolicyModal && (
+          <div className="device-policy-overlay" onClick={closeDevicePolicyModal} role="presentation">
+            <section className="device-policy-modal" onClick={(event) => event.stopPropagation()}>
+              <p className="eyebrow">One Device Notice</p>
+              <h3>One account can stay logged in on one device only.</h3>
+              <p className="muted">
+                Continue with {selectedSignInDevice.label}. If this account is active somewhere else, that
+                previous device session will be signed out.
+              </p>
+              <div className="detail-stack compact-detail-stack">
+                <div>
+                  <span>Selected device</span>
+                  <strong>{selectedSignInDevice.label}</strong>
+                </div>
+                <div>
+                  <span>Device type</span>
+                  <strong>{selectedSignInDevice.type}</strong>
+                </div>
+              </div>
+              <div className="action-row device-policy-actions">
+                <button className="ghost" onClick={closeDevicePolicyModal} type="button">
+                  Change device
+                </button>
+                <button className="primary" disabled={loading} onClick={submitAuthRequest} type="button">
+                  {loading ? "Signing in..." : "Continue"}
+                </button>
+              </div>
+            </section>
+          </div>
+        )}
       </div>
     );
   }
@@ -1633,15 +1767,32 @@ function App() {
                     {Array.isArray(playlist.songs) && playlist.songs.length > 0 && (
                       <div className="playlist-song-list">
                         {playlist.songs.map((song) => (
-                          <button
+                          <div
                             key={`playlist-song-${playlist.playlist_id || playlist.id}-${song.song_id || song.id}`}
                             className="playlist-song-row"
-                            onClick={() => handlePlay(song.song_id || song.id)}
-                            type="button"
                           >
-                            <strong>{song.title}</strong>
-                            <span>{song.artist_name || "Unknown artist"}</span>
-                          </button>
+                            <button
+                              className="playlist-song-play"
+                              onClick={() => handlePlay(song.song_id || song.id)}
+                              type="button"
+                            >
+                              <strong>{song.title}</strong>
+                              <span>{song.artist_name || "Unknown artist"}</span>
+                            </button>
+                            <button
+                              className="playlist-remove-button"
+                              disabled={loading}
+                              onClick={() =>
+                                handleRemoveSongFromPlaylist(
+                                  playlist.playlist_id || playlist.id,
+                                  song,
+                                )
+                              }
+                              type="button"
+                            >
+                              Remove
+                            </button>
+                          </div>
                         ))}
                       </div>
                     )}

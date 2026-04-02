@@ -440,6 +440,40 @@ select {
   color: #5a4216;
 }
 
+.device-policy-inline {
+  margin: 0;
+  padding: 0.9rem 1rem;
+  border-radius: 18px;
+  background: rgba(11, 122, 82, 0.08);
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.device-policy-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(18, 22, 18, 0.4);
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  z-index: 40;
+}
+
+.device-policy-modal {
+  width: min(480px, 100%);
+  border-radius: 28px;
+  padding: 1.5rem;
+  border: 1px solid rgba(255, 255, 255, 0.45);
+  background: rgba(255, 252, 247, 0.96);
+  box-shadow: 0 28px 60px rgba(37, 47, 39, 0.2);
+}
+
+.device-policy-actions {
+  margin-top: var(--space-24);
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+
 .grid.two-up {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -574,10 +608,36 @@ select {
 }
 
 .playlist-song-row {
-  text-align: left;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
   padding: 0.75rem 0.85rem;
   border-radius: 14px;
   background: rgba(255, 255, 255, 0.55);
+}
+
+.playlist-song-play {
+  min-width: 0;
+  flex: 1;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  padding: 0;
+}
+
+.playlist-remove-button {
+  flex-shrink: 0;
+  border-radius: 999px;
+  padding: 0.6rem 0.9rem;
+  background: rgba(213, 31, 74, 0.08);
+  color: #b11a3c;
+  font-weight: 700;
+}
+
+.playlist-remove-button:disabled {
+  opacity: 0.65;
+  cursor: wait;
 }
 
 .notice-row {

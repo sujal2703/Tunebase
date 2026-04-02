@@ -114,6 +114,12 @@ export async function addSongToPlaylist(playlistId, songId) {
   });
 }
 
+export async function removeSongFromPlaylist(playlistId, songId) {
+  return request(`/playlists/${playlistId}/songs/${songId}`, {
+    method: "DELETE",
+  });
+}
+
 export async function fetchPlans() {
   return request("/plans?page=1&per_page=10");
 }
