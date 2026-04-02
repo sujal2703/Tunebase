@@ -154,6 +154,53 @@ def add_song_to_playlist(req: Request, playlist_id: str):
     return api_response(ok=True, message="Song added to playlist", data=payload)
 
 
+def remove_song_from_playlist(playlist_id: str, song_id: str):
+    Playlists = get_model("playlists")
+    PlaylistSongs = get_model("playlist_songs")
+    user_id = current_user_id()
+
+    playlist_pk = primary_key_column(Playlists)
+
+    try:
+        playlist_id_int = int(playlist_id)
+        song_id_int = int(song_id)
+    except (TypeError, ValueError):
+        return api_response(ok=False, message="Invalid `playlist_id` or `song_id`", status_code=400)
+
+    playlist = Playlists.query.filter(playlist_pk == playlist_id_int).first()
+    if not playlist:
+        return api_response(ok=False, message="Playlist not found", status_code=404)
+
+    user_fk_cols = find_foreign_key_columns_referencing(Playlists, "users")
+    if user_fk_cols and getattr(playlist, user_fk_cols[0].name) != user_id:
+        return api_response(ok=False, message="Forbidden", status_code=403)
+
+    playlist_fk_cols = find_foreign_key_columns_referencing(PlaylistSongs, "playlists")
+    song_fk_cols = find_foreign_key_columns_referencing(PlaylistSongs, "songs")
+    if not playlist_fk_cols or not song_fk_cols:
+        return api_response(ok=False, message="playlist_songs must reference playlists and songs", status_code=500)
+
+    playlist_song = PlaylistSongs.query.filter(
+        playlist_fk_cols[0] == playlist_id_int,
+        song_fk_cols[0] == song_id_int,
+    ).first()
+    if not playlist_song:
+        return api_response(ok=False, message="Song is not in this playlist", status_code=404)
+
+    try:
+        db.session.delete(playlist_song)
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        return api_response(ok=False, message=f"Remove song failed: {e}", status_code=500)
+
+    return api_response(
+        ok=True,
+        message="Song removed from playlist",
+        data={"playlist_id": playlist_id_int, "song_id": song_id_int},
+    )
+
+
 def list_user_playlists(req: Request):
     Playlists = get_model("playlists")
     user_id = current_user_id()

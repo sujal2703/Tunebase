@@ -205,6 +205,38 @@ def _create_session(user_id: int, device_id: int):
     return session
 
 
+def _retire_other_active_sessions(user_id: int, current_device_id: int):
+    Sessions = get_model("sessions")
+    session_user_fk_cols = find_foreign_key_columns_referencing(Sessions, "users")
+    if not session_user_fk_cols:
+        return
+
+    status_col = find_column(Sessions, ["status"], required=False)
+    logout_time_col = find_column(Sessions, ["logout_time", "ended_at", "updated_at"], required=False)
+    device_fk_cols = find_foreign_key_columns_referencing(Sessions, "devices")
+    if not device_fk_cols:
+        return
+
+    query = Sessions.query.filter(
+        session_user_fk_cols[0] == user_id,
+        device_fk_cols[0] != current_device_id,
+    )
+    if status_col is not None:
+        query = query.filter(status_col == "active")
+
+    sessions = query.all()
+    if not sessions:
+        return
+
+    for session in sessions:
+        if status_col is not None:
+            setattr(session, status_col.name, "signed_out")
+        if logout_time_col is not None:
+            setattr(session, logout_time_col.name, _now_utc())
+
+    db.session.commit()
+
+
 def login(req: Request):
     """
     POST /auth/login
@@ -306,6 +338,7 @@ def login(req: Request):
         )
         device_pk_col = primary_key_column(get_model("devices"))
         device_id = int(getattr(device, device_pk_col.name))
+        _retire_other_active_sessions(user_id=user_id, current_device_id=device_id)
         _create_session(user_id=user_id, device_id=device_id)
     except Exception as e:
         # Auth succeeded; don't fail login solely due to session/device tracking.
