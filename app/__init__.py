@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import logging
 from pathlib import Path
 from typing import List
 
@@ -12,29 +11,6 @@ from config import Config
 from config import configure_logging
 from app.models import init_models
 from app.utils.http import api_response, http_error_to_json
-from flask_limiter.util import get_remote_address
-from flask_limiter import Limiter
-from redis import Redis
-
-
-def _build_limiter() -> Limiter:
-    storage_uri = Config.RATELIMIT_STORAGE_URL
-    if storage_uri.startswith("redis://") or storage_uri.startswith("rediss://") or storage_uri.startswith("unix://"):
-        redis_connection = Redis.from_url(storage_uri)
-        return Limiter(
-            get_remote_address,
-            storage_uri=storage_uri,
-            storage_options={"connection": redis_connection},
-        )
-
-    return Limiter(
-        get_remote_address,
-        storage_uri=storage_uri,
-    )
-
-
-limiter = _build_limiter()
-
 def _parse_rate_limits(value: str) -> List[str]:
     # Example: "200 per day;50 per hour"
     parts = [p.strip() for p in (value or "").split(";") if p.strip()]
@@ -55,6 +31,7 @@ def create_app() -> Flask:
     jwt.init_app(app)
 
     # Rate limiting
+    app.config["RATELIMIT_STORAGE_URI"] = Config.RATELIMIT_STORAGE_URL
     limiter.default_limits = _parse_rate_limits(Config.RATE_LIMIT_DEFAULT)
     limiter.init_app(app)
 

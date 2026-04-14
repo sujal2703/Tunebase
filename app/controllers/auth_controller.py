@@ -5,6 +5,7 @@ from typing import Any, Dict, Optional
 
 from flask import Request
 from flask_jwt_extended import create_access_token
+from sqlalchemy.exc import SQLAlchemyError
 
 from app.controllers.common import get_model
 from app.extensions import bcrypt, db
@@ -14,6 +15,14 @@ from app.utils.schema_introspection import find_column, find_foreign_key_columns
 
 def _now_utc():
     return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
+def _database_unavailable_response(exc: Exception):
+    return api_response(
+        ok=False,
+        message="Database connection failed. Check the MySQL configuration and required Python dependencies.",
+        status_code=503,
+    )
 
 
 def register(req: Request):
@@ -59,7 +68,10 @@ def register(req: Request):
     auth_status_col = find_column(Authentication, ["account_status", "status"], required=False)
     auth_failed_attempts_col = find_column(Authentication, ["failed_attempts"], required=False)
     plan_name_col = find_column(Plans, ["plan_name", "name", "title"], required=False)
-    free_plan = Plans.query.filter(plan_name_col == "Free").first() if plan_name_col is not None else None
+    try:
+        free_plan = Plans.query.filter(plan_name_col == "Free").first() if plan_name_col is not None else None
+    except (SQLAlchemyError, RuntimeError) as exc:
+        return _database_unavailable_response(exc)
 
     # Ensure we have a way to uniquely identify the account
     if email_col is None:
@@ -79,6 +91,8 @@ def register(req: Request):
         # Email is UNIQUE, so this is sufficient for uniqueness checks.
         if existing_q:
             return api_response(ok=False, message="User already exists", status_code=409)
+    except (SQLAlchemyError, RuntimeError) as exc:
+        return _database_unavailable_response(exc)
     except Exception as e:
         return api_response(ok=False, message=f"User lookup failed: {e}", status_code=400)
 
@@ -263,16 +277,19 @@ def login(req: Request):
     user = None
     identifier_value = None
     identifier_type = None
-    if email_col is not None and payload.get("email"):
-        identifier_value = payload.get("email")
-        identifier_type = "email"
-        user = Users.query.filter(email_col == identifier_value).first()
-    elif name_col is not None and (payload.get("name") or payload.get("username")):
-        identifier_value = payload.get("name") or payload.get("username")
-        identifier_type = "name"
-        user = Users.query.filter(name_col == identifier_value).first()
-    else:
-        return api_response(ok=False, message="Provide `email` or `name`", status_code=400)
+    try:
+        if email_col is not None and payload.get("email"):
+            identifier_value = payload.get("email")
+            identifier_type = "email"
+            user = Users.query.filter(email_col == identifier_value).first()
+        elif name_col is not None and (payload.get("name") or payload.get("username")):
+            identifier_value = payload.get("name") or payload.get("username")
+            identifier_type = "name"
+            user = Users.query.filter(name_col == identifier_value).first()
+        else:
+            return api_response(ok=False, message="Provide `email` or `name`", status_code=400)
+    except (SQLAlchemyError, RuntimeError) as exc:
+        return _database_unavailable_response(exc)
 
     if not user:
         return api_response(ok=False, message="Invalid credentials", status_code=401)

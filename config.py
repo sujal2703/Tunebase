@@ -60,6 +60,7 @@ class Config:
 
     # Rate limiting
     RATE_LIMIT_DEFAULT = os.getenv("RATE_LIMIT_DEFAULT", "200 per day;50 per hour")
+    RATELIMIT_STORAGE_URL = os.getenv("RATELIMIT_STORAGE_URL", "memory://")
 
 
 __all__ = ["Config", "configure_logging"]
